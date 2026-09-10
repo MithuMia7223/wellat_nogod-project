@@ -1,0 +1,16 @@
+# Environment variables
+.env
+
+# Python cache & logs
+__pycache__/
+*.pyc
+*.log
+bot.log
+
+# Data & local storage
+chat_id.txt
+chat_ids.json
+
+# OS & IDE files
+.DS_Store
+.vscode/
