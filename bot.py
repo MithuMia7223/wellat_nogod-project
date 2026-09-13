@@ -170,12 +170,6 @@ async def handle_webhook(request: web.Request):
 
         asyncio.create_task(broadcast_telegram_message(formatted_message, trx_id=trx_id))
         return web.json_response({"status": "success", "trx_id": trx_id, "amount": amount, "speed": "hyper_async"})
-    elif amount and any(keyword in sms_text.upper() for keyword in ["NAGAD", "BKASH", "ROCKET", "UPAY", "CASH OUT", "CASH IN", "RECEIVED", "PAYMENT"]):
-        # Forward transaction SMS even if TrxID regex missed exact keyword
-        logger.info(f"Transaction SMS detected via amount: {amount}")
-        formatted_message = f"💵 <b>{amount} Tk</b>\n\n<code>{sms_text[:300]}</code>"
-        asyncio.create_task(broadcast_telegram_message(formatted_message))
-        return web.json_response({"status": "success", "amount": amount, "note": "Forwarded via amount match"})
     else:
         logger.info("Non-transaction SMS killed/ignored.")
         return web.json_response({"status": "ignored", "reason": "No TrxID found, text killed"})
