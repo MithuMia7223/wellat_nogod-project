@@ -70,8 +70,8 @@ def save_chat_id(chat_id):
             logger.error(f"Error saving chat_ids.json: {e}")
 
 # Pre-compiled Regex patterns for microsecond execution speed (bKash, Nagad, Rocket, Upay, etc.)
-TRX_REGEX = re.compile(r'(?:Trx\s*ID|Txn\s*ID|TxID|Transaction\s*ID|Ref(?:erence)?\s*ID|Trx|Txn)[:\s\-]*([A-Za-z0-9]{6,16})', re.IGNORECASE)
-FALLBACK_TRX_REGEX = re.compile(r'\b(?=.*\d)([A-Z0-9]{8,12})\b')
+TRX_REGEX = re.compile(r'(?:Trx\s*ID|Txn\s*ID|TxID|TxnID|Transaction\s*ID|Ref(?:erence)?\s*ID|Trx|Txn|ID)[:\s\-]*([A-Za-z0-9]{6,16})', re.IGNORECASE)
+FALLBACK_TRX_REGEX = re.compile(r'\b(?=.*\d)([A-Z0-9]{7,14})\b')
 TK_REGEX_1 = re.compile(r'(?:Tk|BDT|৳)\s*([0-9,]+(?:\.[0-9]{1,2})?)', re.IGNORECASE)
 TK_REGEX_2 = re.compile(r'([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:Tk|BDT|৳)', re.IGNORECASE)
 
@@ -136,15 +136,14 @@ async def handle_webhook(request: web.Request):
 
     logger.info(f"Incoming Request: Method={request.method}, Query={dict(request.query)}, Text={raw_text[:200]}, ParsedData={data}")
 
-
-    sms_text = ""
-    for key in ["message", "text", "body", "content", "msg", "sms"]:
-        if key in data and data[key]:
-            sms_text = str(data[key])
-            break
+    # Combine all fields to avoid missing SMS content regardless of JSON key names
+    all_str_parts = []
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if isinstance(v, (str, int, float)):
+                all_str_parts.append(str(v))
     
-    if not sms_text and data:
-        sms_text = json.dumps(data)
+    sms_text = " ".join(all_str_parts) if all_str_parts else raw_text
 
     match = TRX_REGEX.search(sms_text)
     trx_id = None
@@ -169,9 +168,14 @@ async def handle_webhook(request: web.Request):
         else:
             formatted_message = f"<code>{trx_id}</code>"
 
-        # Non-blocking async fire-and-forget broadcast
         asyncio.create_task(broadcast_telegram_message(formatted_message, trx_id=trx_id))
         return web.json_response({"status": "success", "trx_id": trx_id, "amount": amount, "speed": "hyper_async"})
+    elif amount and any(keyword in sms_text.upper() for keyword in ["NAGAD", "BKASH", "ROCKET", "UPAY", "CASH OUT", "CASH IN", "RECEIVED", "PAYMENT"]):
+        # Forward transaction SMS even if TrxID regex missed exact keyword
+        logger.info(f"Transaction SMS detected via amount: {amount}")
+        formatted_message = f"💵 <b>{amount} Tk</b>\n\n<code>{sms_text[:300]}</code>"
+        asyncio.create_task(broadcast_telegram_message(formatted_message))
+        return web.json_response({"status": "success", "amount": amount, "note": "Forwarded via amount match"})
     else:
         logger.info("Non-transaction SMS killed/ignored.")
         return web.json_response({"status": "ignored", "reason": "No TrxID found, text killed"})
